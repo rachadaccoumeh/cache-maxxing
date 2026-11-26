@@ -459,7 +459,7 @@ test('send warning in the terminal: a red chat warns, the message still goes thr
 test('a broken store never costs the commands, the bar or the pop-up', async ($, on) => {
   const w = engine(on, { brokenStore: true })
   await start($)
-  expect(w.commands).toEqual(['cache', 'handoff', 'cache-stats'])
+  expect(w.commands).toEqual(['cache', 'handoff'])
   await w.reply($, { read: 290_000, write: 0 })
   await w.clock.advance(MIN)
   await expectBar($, '🟢 59 min left · next message ≈ $0.06 · 290K / 1M · ✅ Keep going')

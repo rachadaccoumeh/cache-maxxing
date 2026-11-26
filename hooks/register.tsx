@@ -232,7 +232,7 @@ export const register: Register = (on, options) => {
     // commands and ticker first: a broken store must never cost the user the bar or the commands
     await $.command.register({ name: 'cache', description: 'Show or hide the cache-maxxing bar' })
     await $.command.register({ name: 'handoff', description: `Summarize this chat with ${HANDOFF_MODEL.name} (the expired cache is never resent) and start a fresh chat from it` })
-    await $.command.register({ name: 'cache-stats', description: 'Show what cache-maxxing counted: handoff savings, cold rebuilds, cache hit rate, for this chat and all chats' })
+    // Fork: /cache-stats is not registered (not wanted in the menu). Its handler stays: the tests read the counters through it.
     // Each second: redraw the bar (it computes from the wall clock, so sleep or a
     // paused timer can't drift it) and pop up once when a big chat's cache expires.
     $.clock.every(1000, () => {

@@ -21,7 +21,7 @@ Personal fork of [5m0k3/cache-maxxing](https://github.com/5m0k3/cache-maxxing) 0
 - `/handoff` writes the brief with **Sonnet** (not Haiku) and reads a longer tail of the chat: 400 messages, 400,000 characters.
 - The transcript is cut at whole messages, never inside a quoted block.
 - A facts-only brief (the model call failed) no longer clears the chat.
-- Commands are `/handoff`, `/cache` and `/cache-stats` (upstream: `/cmaxx-handoff`, `/cmaxx`, `/cmaxx-stats`).
+- Commands are `/handoff` and `/cache` (upstream: `/cmaxx-handoff`, `/cmaxx`). The stats command is not registered.
 - There is no update command. The price list refreshes itself at session start, at most once a day, with one GET of upstream's `prices.json`; nothing is sent. No version check and no code install: merge upstream with git after a review.
 - Where the text below still names an update command, this section is the correct one.
 
