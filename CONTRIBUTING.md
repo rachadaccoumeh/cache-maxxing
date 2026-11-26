@@ -27,19 +27,19 @@ Open a Claude Code chat in this folder. It loads the **dev copy**, so your edits
 |---|---|
 | `hooks/logic.ts` | Pure logic: prices, the rules, every text the bar shows, stats and update checks. No `$` calls, so it's tested directly. |
 | `hooks/register.tsx` | Wiring: events, state, storage, drawing, the four commands. |
-| `hooks/handoff.ts`, `hooks/handoff-skill.md` | `/cmaxx-handoff`: what is extracted, and what Haiku is told. |
+| `hooks/handoff.ts`, `hooks/handoff-skill.md` | `/handoff`: what is extracted, and what Haiku is told. |
 | `types/index.d.ts` | The `$.state` contract. |
 | `tests/` | `logic.test.ts` (exact texts), `handoff.test.ts`, `bar.test.tsx` (the real hooks, drawn on every surface). |
-| `prices.json` | Generated from the bundled price table; what `/cmaxx-update` downloads. |
+| `prices.json` | Generated from the bundled price table; what `/cache-update` downloads. |
 | `scripts/` | `dev-sync.sh`, `release.sh`, `prices-json.ts`. |
 
 ## Rules every change keeps
 
-1. **No network and no model calls**, except `/cmaxx-update` (GETs of this repository's raw files, nothing sent) and `/cmaxx-handoff` (one `$.model.complete` to Haiku). `$.http` and `$.process` appear only in the update command, and `$.model` only in the handoff. Never `$.model.fork`.
+1. **No network and no model calls**, except `/cache-update` (GETs of this repository's raw files, nothing sent) and `/handoff` (one `$.model.complete` to Haiku). `$.http` and `$.process` appear only in the update command, and `$.model` only in the handoff. Never `$.model.fork`.
 2. **Never block a message.** Warn with a pop-up; never drop or rewrite what the user sends.
 3. **Fail open.** A hook that errors must never get in Claude Code's way; storage is best-effort and the bar runs from memory.
 4. **Identical text on every surface.** `tests/bar.test.tsx` draws the bar on desktop, vscode and terminal and requires the same text. A surface-specific change adds its own test and never edits the shared expectations.
-5. **Suggestions, not commands.** The bar's tips are phrased as options ("Try /cmaxx-handoff …").
+5. **Suggestions, not commands.** The bar's tips are phrased as options ("Try /handoff …").
 6. **Measure, don't guess.** If a number in the code comes from a measurement, say which in a comment.
 
 ## Making a change
@@ -65,7 +65,7 @@ Prices live in `PRICES` in `hooks/logic.ts`, as `[input, cache read]` per millio
 2. Set `PRICES_DATE` to today: a downloaded table only overrides the built-in one if it is newer.
 3. Run `bun scripts/prices-json.ts` and commit `prices.json` with the change.
 
-Once on `main`, everyone who runs `/cmaxx-update` gets the new prices, without a new release.
+Once on `main`, everyone who runs `/cache-update` gets the new prices, without a new release.
 
 ## Releasing (maintainers)
 

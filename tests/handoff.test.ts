@@ -1,4 +1,4 @@
-// /cmaxx-handoff's pure parts: facts from code, the abbreviated conversation, the
+// /handoff's pure parts: facts from code, the abbreviated conversation, the
 // skill file's parts, the brief check and the file the new chat reads.
 import { expect, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
@@ -87,12 +87,12 @@ test('harness rows are labelled, never taken for the user; the seed line is not 
   expect(t).toContain('### system signal (not the user)')
 })
 
-test('transcript limits: 120 newest messages, 2,000 chars each, tool input 300, no tool output', async () => {
-  const many = Array.from({ length: 130 }, (_, i) => user(`msg-${i}`))
+test('transcript limits: 400 newest messages, 2,000 chars each, tool input 300, no tool output', async () => {
+  const many = Array.from({ length: 410 }, (_, i) => user(`msg-${i}`))
   const t = renderTranscript(many)
   expect(t.includes('msg-9\n') || t.endsWith('msg-9')).toBe(false)
   expect(t).toContain('msg-10')
-  expect(t).toContain('msg-129')
+  expect(t).toContain('msg-409')
   expect(renderTranscript([user('x'.repeat(2_500))])).toContain(`${'x'.repeat(2_000)} [truncated]`)
   const w = renderTranscript([asst('', [tool('Bash', { command: 'y'.repeat(1_000) }, 'SECRET-OUTPUT')])])
   expect(w).toContain(`[tool Bash] ${JSON.stringify({ command: 'y'.repeat(1_000) }).slice(0, 300)}\n`.trimEnd())
@@ -100,10 +100,13 @@ test('transcript limits: 120 newest messages, 2,000 chars each, tool input 300, 
   expect(w.includes('SECRET-OUTPUT')).toBe(false)
 })
 
-test('transcript is capped at 150,000 characters, keeping the newest', async () => {
-  const t = renderTranscript(Array.from({ length: 100 }, (_, i) => user(`${i}:${'z'.repeat(1_900)}`)))
-  expect(t.length).toBe(150_000)
-  expect(t).toContain('99:')
+test('transcript is capped at 400,000 characters, keeping the newest whole messages', async () => {
+  const t = renderTranscript(Array.from({ length: 300 }, (_, i) => user(`${i}:${'z'.repeat(1_900)}`)))
+  expect(t.length).toBeLessThanOrEqual(400_000)
+  expect(t.length).toBeGreaterThan(398_000) // only whole messages are dropped
+  expect(t.startsWith('### user\n```\n')).toBe(true) // never a cut inside a fence
+  expect((t.match(/```/g) ?? []).length % 2).toBe(0)
+  expect(t).toContain('299:')
 })
 
 test('numbers come from the bar record; none known says unknown', async () => {
@@ -143,7 +146,7 @@ test('the saved file: instructions, header with transcript, brief, facts with th
   expect(ok).toContain('## Last Real User Message (verbatim)\ndo x') // kept even when the brief quotes it (issue #1)
   const bare = assembleBrief(ctx, f, {}, undefined)
   expect(bare).toContain('Confirm in two sentences.')
-  expect(bare).toContain('Haiku did not return a usable brief')
+  expect(bare).toContain('Sonnet did not return a usable brief')
   expect(bare).toContain('## Last Real User Message (verbatim)\ndo x')
 })
 

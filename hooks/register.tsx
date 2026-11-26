@@ -6,11 +6,11 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Rec } from '../types'
 import { assembleBrief, briefPrompt, extractFacts, handoffPath, isValidBrief, parseSkill, savingsLine, seedLine, transcriptGuess } from './handoff'
 import type { Numbers } from './handoff'
-import { type Learned, PRICES_DATE, WAITING, isDevCopy, addStats, bundledPrices, costs, decide, fromSessionStart, haikuUsd, handoffSaving, newerVersion, priceOf, readSettings, compactPrefix, sendWarning, setLearned, setPriceOverride, statsFromTranscript, statsText, sumStats, ttlFor, ttlFromUsage, validatePrices } from './logic'
+import { type Learned, HANDOFF_MODEL, PRICES_DATE, WAITING, addStats, bundledPrices, costs, decide, fromSessionStart, haikuUsd, handoffSaving, priceOf, readSettings, compactPrefix, sendWarning, setLearned, setPriceOverride, statsFromTranscript, statsText, sumStats, ttlFor, ttlFromUsage, validatePrices } from './logic'
 import type { Stats } from './logic'
 
 const KEEP_MS = 7 * 24 * 60 * 60 * 1000 // saved chats older than this are pruned; an older chat refills on resume
-const STATS_KEEP_MS = 90 * 24 * 60 * 60 * 1000 // a chat's /cmaxx-stats counts (your call); then folded into st:retired
+const STATS_KEEP_MS = 90 * 24 * 60 * 60 * 1000 // a chat's /cache-stats counts (your call); then folded into st:retired
 const TOMBSTONE_MS = 365 * 24 * 60 * 60 * 1000 // a retired chat's marker, so a resume doesn't read its history again
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_READ = 4 * 1024 * 1024 // $.fs.read refuses bigger files
@@ -24,7 +24,7 @@ const SAMPLES = 20 // each learned size keeps your last 20 (logic.ts `setLearned
 // `shape` declines a record an older version stored in another form (no NaN:NaN).
 const last = atom({ plugin: 'cache-maxxing', key: 'last' } as const, null, { shape: 'rec-2' })
 const tick = atom({ plugin: 'cache-maxxing', key: 'tick' } as const, 0)
-// Closed with the bar's ✕ for this chat; /cmaxx brings it back.
+// Closed with the bar's ✕ for this chat; /cache brings it back.
 const hidden = atom({ plugin: 'cache-maxxing', key: 'hidden' } as const, false)
 
 // Module variables survive /clear ($.state does not): the handoff line waiting for the
@@ -119,8 +119,8 @@ async function prune($: EngineInterface) {
   }
 }
 
-// /cmaxx-stats counters, per chat. A turn's counts wait in memory and are written once, at the
-// turn's end (or when /cmaxx-stats asks); All chats is summed from these keys when asked.
+// /cache-stats counters, per chat. A turn's counts wait in memory and are written once, at the
+// turn's end (or when /cache-stats asks); All chats is summed from these keys when asked.
 // shortcut: a crash mid-turn loses that turn's counts; write per step if that ever matters.
 const pending = new Map<string, Partial<Stats>>()
 let isInteractive = true // claude -p, the SDK and observer sessions aren't counted
@@ -147,7 +147,7 @@ async function flush($: EngineInterface) {
 
 // A chat this plugin hasn't counted from its start: read its history from the transcript once
 // (4 MiB at most, $.fs.read's limit), adding only what live counting hasn't already. Too big to
-// read: counted from now on, and /cmaxx-stats says "since <date>".
+// read: counted from now on, and /cache-stats says "since <date>".
 async function fillIn($: EngineInterface, sessionId: string, path: string | undefined, ttlMin: number, isFork: boolean) {
   if (!isInteractive || !path) return
   const key = `st:${sessionId}`
@@ -166,11 +166,61 @@ async function fillIn($: EngineInterface, sessionId: string, path: string | unde
   await $.store.set(key, { ...chat, at: now })
 }
 
-// Prices /cmaxx-update saved, checked again on load: a bad or stale table is ignored.
+// Prices saved by the daily refresh, checked again on load: a bad or stale table is ignored.
 async function loadPrices($: EngineInterface) {
   const v = validatePrices(await $.store.get('prices'), PRICES_DATE)
   // only a table newer than the bundled one: a release's corrected prices always win
   setPriceOverride('error' in v || v.sourceDate <= PRICES_DATE ? null : v.prices)
+}
+
+// Fork: the price list refreshes itself, at most once a day, when a session starts. It is the
+// plugin's only network use: one GET of upstream's prices.json; nothing is sent. The table is
+// validated and changes only the figures on the bar. There is no command and no version check.
+const PRICES_EVERY_MS = DAY_MS
+async function refreshPrices($: EngineInterface): Promise<string> {
+  const get = async (file: string) => {
+    const r = await $.http.fetch(`${REPO_RAW}/${file}`).catch((err: unknown) => {
+      $.ui.log(`cache-maxxing: fetch ${file}: ${String(err)}`, { to: 'debug' })
+      throw new Error('GitHub not reachable (offline?)') // the raw error went to the debug log
+    })
+    if (!r.ok) throw new Error(`${file}: HTTP ${r.status}`)
+    return JSON.parse(r.text) as unknown
+  }
+  const lines: string[] = []
+  try {
+    const v = validatePrices(await get('prices.json'), PRICES_DATE)
+    const before = validatePrices(await $.store.get('prices').catch(() => undefined), PRICES_DATE)
+    if ('error' in v) lines.push(`Prices not changed: the downloaded table was refused (${v.error}).`)
+    // an older download never replaces newer prices saved earlier (issue #6)
+    else if (!('error' in before) && before.sourceDate > v.sourceDate) lines.push(`Prices: up to date (${before.sourceDate}).`)
+    else if (v.sourceDate <= PRICES_DATE) {
+      // not newer than the prices built into this version: those win, and an older download is dropped
+      await $.store.delete('prices').catch(() => {})
+      setPriceOverride(null)
+      lines.push(`Prices: up to date (${PRICES_DATE}).`)
+    } else {
+      const known = 'error' in before || before.sourceDate <= PRICES_DATE ? bundledPrices().prices : before.prices
+      const added = Object.keys(v.prices).filter(k => !(k in known))
+      const changed = added.length > 0 || JSON.stringify(v.prices) !== JSON.stringify(known)
+      await $.store.set('prices', v).catch(() => {})
+      setPriceOverride(v.prices)
+      lines.push(changed ? `Prices updated to ${v.sourceDate}${added.length ? `: new ${added.map(k => `claude-${k}`).join(', ')}` : ''}.` : `Prices: up to date (${v.sourceDate}).`)
+    }
+  } catch (err) {
+    lines.push(`Prices not checked: ${errText(err)}.`)
+  }
+  return lines.join(' ')
+}
+
+// shortcut: awaited in session.start, so a slow GitHub delays one start a day; move it to a timer if that is ever felt
+async function refreshPricesDaily($: EngineInterface) {
+  const now = await $.clock.now()
+  const last = Number(await $.store.get('pricesCheckedAt').catch(() => undefined))
+  if (Number.isFinite(last) && now - last < PRICES_EVERY_MS) return
+  const text = await refreshPrices($)
+  $.ui.log(`cache-maxxing: ${text}`, { to: 'debug' })
+  // a failed download is tried again at the next start
+  if (!text.startsWith('Prices not checked')) await $.store.set('pricesCheckedAt', now).catch(() => {})
 }
 
 export const register: Register = (on, options) => {
@@ -180,10 +230,9 @@ export const register: Register = (on, options) => {
     isInteractive = e.isInteractive !== false
     savedFor = undefined
     // commands and ticker first: a broken store must never cost the user the bar or the commands
-    await $.command.register({ name: 'cmaxx', description: 'Show or hide the cache-maxxing bar' })
-    await $.command.register({ name: 'cmaxx-handoff', description: 'Summarize this chat with Haiku (the expired cache is never resent) and start a fresh chat from it' })
-    await $.command.register({ name: 'cmaxx-update', description: 'Update cache-maxxing to the latest version, or refresh its model prices (reads this plugin\'s GitHub files; sends nothing)' })
-    await $.command.register({ name: 'cmaxx-stats', description: 'Show what cache-maxxing counted: handoff savings, cold rebuilds, cache hit rate, for this chat and all chats' })
+    await $.command.register({ name: 'cache', description: 'Show or hide the cache-maxxing bar' })
+    await $.command.register({ name: 'handoff', description: `Summarize this chat with ${HANDOFF_MODEL.name} (the expired cache is never resent) and start a fresh chat from it` })
+    await $.command.register({ name: 'cache-stats', description: 'Show what cache-maxxing counted: handoff savings, cold rebuilds, cache hit rate, for this chat and all chats' })
     // Each second: redraw the bar (it computes from the wall clock, so sleep or a
     // paused timer can't drift it) and pop up once when a big chat's cache expires.
     $.clock.every(1000, () => {
@@ -202,6 +251,7 @@ export const register: Register = (on, options) => {
     })
     void prune($).catch(() => {}) // in the background: never holds up the first prompt
     await loadPrices($).catch(() => {})
+    await refreshPricesDaily($).catch(() => {})
     for (const k of ['fresh', 'brief', 'haiku', 'compact'] as const) setLearned(k, await $.store.get(k).catch(() => undefined))
     await adopt($, null).catch(() => {}) // bring back this chat's saved record (app restart, reload)
     return next(e)
@@ -215,7 +265,7 @@ export const register: Register = (on, options) => {
     if (e.session_id) await fillIn($, e.session_id, e.transcript_path, ttlFor(settings.memoryMinutes), e.source === 'fork').catch(() => {})
     if (e.source === 'clear') {
       await save($, null, e.session_id)
-      // the fresh chat a /cmaxx-handoff opened: put the line in its box; sending stays the user's
+      // the fresh chat a /handoff opened: put the line in its box; sending stays the user's
       const seed = pendingSeed
       pendingSeed = undefined
       if (seed && (await $.clock.now()) - seed.at < SEED_MS) {
@@ -329,80 +379,20 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // a turn's /cmaxx-stats counts are written once, when it ends
+  // a turn's /cache-stats counts are written once, when it ends
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
     await flush($).catch(() => {})
     return r
   })
 
-  on('command.run', { command: 'cmaxx' }, async $ => {
+  on('command.run', { command: 'cache' }, async $ => {
     const isHidden = !(await read($, hidden))
     await update($, hidden, () => isHidden)
-    return { text: isHidden ? 'cache-maxxing bar hidden. Type /cmaxx to show it.' : 'cache-maxxing bar shown.' }
+    return { text: isHidden ? 'cache-maxxing bar hidden. Type /cache to show it.' : 'cache-maxxing bar shown.' }
   })
 
-  // /cmaxx-update: the plugin's only network use, and only when you run it. GETs of this
-  // repo's own files; nothing is sent. A newer version is installed by Claude Code's own
-  // updater where the plugin may run it (the terminal); otherwise the reply says how.
-  on('command.run', { command: 'cmaxx-update' }, async $ => {
-    const get = async (file: string) => {
-      const r = await $.http.fetch(`${REPO_RAW}/${file}`).catch((err: unknown) => {
-        $.ui.log(`cache-maxxing: /cmaxx-update fetch ${file}: ${String(err)}`, { to: 'debug' })
-        throw new Error('GitHub not reachable (offline?)') // the raw error went to the debug log
-      })
-      if (!r.ok) throw new Error(`${file}: HTTP ${r.status}`)
-      return JSON.parse(r.text) as unknown
-    }
-    const lines: string[] = []
-    // each step reports on its own: a failed price download never hides a finished update
-    try {
-      const mine = String((JSON.parse(String(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`))) as { version?: unknown }).version)
-      const latest = String((await get('.claude-plugin/plugin.json') as { version?: unknown }).version)
-      if (!newerVersion(latest, mine)) lines.push(`cache-maxxing ${mine} is the latest version.`)
-      else if (isDevCopy($.plugin.name)) lines.push(`Version ${latest} is out (this is the dev copy, ${mine}: not updated).`)
-      else {
-        const run = await $.process.run(['claude', 'plugin', 'update', 'cache-maxxing@cache-maxxing'], { timeoutMs: 120_000 }).catch((err: unknown) => ({ exitCode: -1, stdout: '', stderr: String(err) }))
-        $.ui.log(`cache-maxxing: plugin update exit ${run.exitCode}: ${run.stderr.slice(0, 300)}`, { to: 'debug' })
-        // exit 0 also when nothing changed: Claude Code's marketplace copy is older than GitHub (F73)
-        const isStale = run.exitCode === 0 && /already at the latest version/i.test(`${run.stdout} ${run.stderr}`)
-        lines.push(isStale
-          ? `Version ${latest} is out, but Claude Code's copy of the marketplace is behind (you have ${mine}). In a terminal run \`claude plugin marketplace update cache-maxxing\`, then /cmaxx-update again.`
-          : run.exitCode === 0
-          ? `Updated cache-maxxing ${mine} → ${latest}. Run /reload-plugins (or restart the app) to use it.`
-          : `Version ${latest} is out (you have ${mine}). To update: in a terminal run \`claude plugin update cache-maxxing@cache-maxxing\`, or in the desktop app open + → Plugins → Manage plugins. Then run /reload-plugins. Tip: \`/plugin\` → Marketplaces → cache-maxxing → Enable auto-update keeps it current.`)
-      }
-    } catch (err) {
-      lines.push(`Couldn't check for a new version: ${errText(err)}.`)
-    }
-    try {
-      const v = validatePrices(await get('prices.json'), PRICES_DATE)
-      const before = validatePrices(await $.store.get('prices').catch(() => undefined), PRICES_DATE)
-      if ('error' in v) lines.push(`Prices not changed: the downloaded table was refused (${v.error}).`)
-      // an older download never replaces newer prices saved earlier (issue #6)
-      else if (!('error' in before) && before.sourceDate > v.sourceDate) lines.push(`Prices: up to date (${before.sourceDate}).`)
-      else if (v.sourceDate <= PRICES_DATE) {
-        // not newer than the prices built into this version: those win, and an older download is dropped
-        await $.store.delete('prices').catch(() => {})
-        setPriceOverride(null)
-        lines.push(`Prices: up to date (${PRICES_DATE}).`)
-      } else {
-        const known = 'error' in before || before.sourceDate <= PRICES_DATE ? bundledPrices().prices : before.prices
-        const added = Object.keys(v.prices).filter(k => !(k in known))
-        const changed = added.length > 0 || JSON.stringify(v.prices) !== JSON.stringify(known)
-        await $.store.set('prices', v).catch(() => {})
-        setPriceOverride(v.prices)
-        lines.push(changed ? `Prices updated to ${v.sourceDate}${added.length ? `: new ${added.map(k => `claude-${k}`).join(', ')}` : ''}.` : `Prices: up to date (${v.sourceDate}).`)
-      }
-    } catch (err) {
-      lines.push(`Prices not checked: ${errText(err)}.`)
-    }
-    const isNothingChecked = lines.every(l => l.startsWith("Couldn't") || l.startsWith('Prices not checked'))
-    // no "cache-maxxing:" of our own: Claude Code already names the plugin on its output
-    return { text: isNothingChecked ? `${lines.join(' ')} Nothing changed.` : lines.join(' ') }
-  })
-
-  on('command.run', { command: 'cmaxx-stats' }, async $ => {
+  on('command.run', { command: 'cache-stats' }, async $ => {
     await flush($).catch(() => {}) // include the turn in progress
     const get = (k: string) => $.store.get(k).catch(() => undefined)
     const now = await $.clock.now()
@@ -412,9 +402,9 @@ export const register: Register = (on, options) => {
     return { text: statsText(chat, all, settings) }
   })
 
-  // /cmaxx-handoff: Haiku writes the brief from the chat read locally. Never $.model.fork:
+  // /handoff: Haiku writes the brief from the chat read locally. Never $.model.fork:
   // it would resend this chat's prefix, the very rebuild a handoff exists to avoid.
-  on('command.run', { command: 'cmaxx-handoff' }, async $ => {
+  on('command.run', { command: 'handoff' }, async $ => {
     try {
       $.ui.toast('cache-maxxing: writing the handoff…')
       const skill = parseSkill(String(await $.fs.read(`${$.plugin.root}/hooks/handoff-skill.md`)))
@@ -425,7 +415,7 @@ export const register: Register = (on, options) => {
       const facts = extractFacts(messages)
       const nums: Numbers = rec ? { tokens: rec.prefix, window: rec.window, model: rec.model, bar: decide(rec, now, settings).text } : {}
       const r = await $.model.complete({
-        model: 'haiku',
+        model: HANDOFF_MODEL.alias,
         system: skill.brief,
         prompt: briefPrompt(messages, facts, nums, skill.closing),
         effort: 'high',
@@ -435,7 +425,7 @@ export const register: Register = (on, options) => {
       })
       const usable = r.isAnswered && r.text.trim() && isValidBrief(r.text) ? r.text : undefined
       // why a brief is facts only, with Haiku's token counts: out at the cap means it ran out of room
-      const problem = usable ? undefined : !r.isAnswered ? `Haiku ${r.reason}` : `Haiku's reply had ${r.text.trim() ? 'none of the sections' : 'no text'}, in ${r.usage.input_tokens} / out ${r.usage.output_tokens} of 64000 tokens`
+      const problem = usable ? undefined : !r.isAnswered ? `${HANDOFF_MODEL.name} ${r.reason}` : `${HANDOFF_MODEL.name}'s reply had ${r.text.trim() ? 'none of the sections' : 'no text'}, in ${r.usage.input_tokens} / out ${r.usage.output_tokens} of 64000 tokens`
       const transcript = transcriptPath ?? transcriptGuess(await $.session.cwd(), sessionId, await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined))
       const path = handoffPath(now, sessionId)
       const brief = assembleBrief({ sessionId, transcript, skill }, facts, nums, usable)
@@ -465,6 +455,9 @@ export const register: Register = (on, options) => {
         $.ui.toast(text)
         // the desktop app doesn't draw a system notice row (live 00:31, F53): use the command's output
         return { text }
+      } else if (problem) {
+        // Fork: a facts-only brief is too thin to clear the chat on; the user decides
+        text += ` This chat was not cleared. To continue from the facts-only file, run /clear and send: ${line}`
       } else {
         pendingSeed = { line, at: await $.clock.now() } // after Haiku: the call itself may take minutes
         // /clear is refused from inside this hook (measured), so it starts on a timer just

@@ -48,11 +48,11 @@ const PRICES: Record<string, [input: number, read: number]> = {
 
 // Exact version match: 'claude-opus-5-6' is unknown, not Opus 5's price. Accepts
 // platform prefixes (anthropic., us.anthropic.), dates, [1m], @versions and -fast.
-// The day PRICES was last checked; a downloaded table older than this is refused (/cmaxx-update).
+// The day PRICES was last checked; a downloaded table older than this is refused (/cache-update).
 export const PRICES_DATE = '2026-11-17'
 export const bundledPrices = () => ({ sourceDate: PRICES_DATE, prices: PRICES })
 
-// Prices /cmaxx-update downloaded (validated), used over the bundled table until a newer release.
+// Prices /cache-update downloaded (validated), used over the bundled table until a newer release.
 let priceOverride: Record<string, [number, number]> | null = null
 export function setPriceOverride(p: Record<string, [number, number]> | null) {
   priceOverride = p
@@ -66,7 +66,7 @@ function parseModel(model: string): { key: string; family: string; v: [number, n
 }
 
 // True for a model newer than every priced one of its family (or a family not priced at all):
-// the moment /cmaxx-update helps. An old unpriced model (Sonnet 3.7) is not "new".
+// the moment /cache-update helps. An old unpriced model (Sonnet 3.7) is not "new".
 export function isNewModel(model: string): boolean {
   const m = parseModel(model)
   if (!m) return false
@@ -112,9 +112,14 @@ export function ttlFromUsage(setting: Settings['memoryMinutes'], u: { ephemeral_
   return prev ?? 60
 }
 
-// Haiku 5.5's cost for a handoff; output is 5x its input rate in both bands (FACTS F48b).
+// Fork: the model that writes the handoff brief. Sonnet reads more of the chat and keeps early
+// constraints better than Haiku; the call stays small against the rebuild it avoids.
+// Names below keep `haiku` so the diff against upstream stays small.
+export const HANDOFF_MODEL = { alias: 'sonnet', price: 'claude-sonnet-5-5', name: 'Sonnet' } as const
+
+// The handoff model's cost for a handoff; output is priced at 5x its input rate (FACTS F48b).
 export function haikuUsd(inTok: number, outTok: number): number {
-  const p = priceOf('claude-haiku-5-5', inTok)!
+  const p = priceOf(HANDOFF_MODEL.price, inTok)!
   return (inTok * p.input + outTok * p.input * 5) / 1e6
 }
 
@@ -186,7 +191,7 @@ export function money(usd: number): string {
 }
 
 // What the bar suggests instead of commanding (built in 0.2.0)
-export const HANDOFF = '/cmaxx-handoff'
+export const HANDOFF = '/handoff'
 const SUGGEST_NEW = `🔄 Try ${HANDOFF} or a new chat`
 const RESET_LABEL = { model: 'cache reset (model changed)', compact: 'cache reset (chat compacted)' } as const
 
@@ -210,8 +215,8 @@ export function clock(ms: number): string {
 // the state, so the text is only: time, next-message cost, context, recommendation.
 export function decide(rec: Rec, now: number, s: Settings): Verdict {
   const v = decideBase(rec, now, s)
-  // no price for this model (likely a new one): the moment /cmaxx-update helps
-  return costs(rec) || !isNewModel(rec.model) ? v : { ...v, text: `${v.text} · new model? try /cmaxx-update` }
+  // no price for this model (likely a new one): the moment /cache-update helps
+  return costs(rec) || !isNewModel(rec.model) ? v : { ...v, text: `${v.text} · new model? price not known yet` }
 }
 
 function decideBase(rec: Rec, now: number, s: Settings): Verdict {
@@ -282,7 +287,7 @@ export function readSettings(o: Record<string, unknown>): Settings {
   }
 }
 
-// /cmaxx-stats: counters per chat (`st:<chat id>`) and for all chats (`st:all`). Counts only, never chat text.
+// /cache-stats: counters per chat (`st:<chat id>`) and for all chats (`st:all`). Counts only, never chat text.
 export type Stats = {
   since: number // ms epoch of the first count
   replies: number
@@ -319,7 +324,7 @@ export function addStats(s: unknown, d: Partial<Stats>, now: number): Stats {
   return out
 }
 
-// The /cmaxx-stats reply: this chat and all chats side by side.
+// The /cache-stats reply: this chat and all chats side by side.
 export function statsText(chat: Stats, all: Stats, s: Settings): string {
   const date = (ms: number) => new Date(ms).toISOString().slice(0, 10)
   const usd = (n: number) => (n > 0 ? money(n) : '$0.00')
@@ -409,7 +414,7 @@ export function sumStats(chats: unknown[], retired: unknown, now: number): Stats
 // endsWith: dev-sync.sh renames every quoted 'cache-maxxing', so an equality check would flip.
 export const isDevCopy = (name: string) => name.endsWith('-dev')
 
-// /cmaxx-update: "0.10.0" is newer than "0.9.3". A pre-release or build tag ("0.4.1-rc.1", "+build.1")
+// /cache-update: "0.10.0" is newer than "0.9.3". A pre-release or build tag ("0.4.1-rc.1", "+build.1")
 // is compared by its numbers only.
 export function newerVersion(a: string, b: string): boolean {
   const nums = (v: string) => v.split(/[-+]/)[0]!.split('.').map(Number)

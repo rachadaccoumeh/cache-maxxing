@@ -1,15 +1,15 @@
-// /cmaxx-handoff: the pure parts. Code extracts the facts that must not be lost (files,
+// /handoff: the pure parts. Code extracts the facts that must not be lost (files,
 // commits, the last request, the bar's numbers); Haiku writes the judgment sections from
 // an abbreviated conversation; a reply with none of the sections falls back to the facts.
 // Limits follow auto-handoff (battle-tested): last 120 messages, 2,000 chars each,
 // 150,000 in all, tool inputs cut at 300, tool output left out.
 import type { SessionMessage } from 'claude-code'
 
-import { handoffSaving, money, tokens } from './logic'
+import { HANDOFF_MODEL, handoffSaving, money, tokens } from './logic'
 
-const MAX_MESSAGES = 120
+const MAX_MESSAGES = 400 // fork: Sonnet reads a longer tail (upstream: 120)
 const MAX_MSG_CHARS = 2_000
-const MAX_TRANSCRIPT_CHARS = 150_000
+const MAX_TRANSCRIPT_CHARS = 400_000 // fork: about 100K tokens (upstream: 150_000)
 const MAX_TOOL_INPUT = 300
 const MAX_LAST_MESSAGE = 4_000 // a pasted log must not flood Haiku's prompt or the saved file
 
@@ -85,8 +85,11 @@ export function renderTranscript(messages: readonly SessionMessage[]): string {
     const tools = m.toolUses.map(t => `  [tool ${t.tool}${t.isError ? ' ERROR' : ''}] ${JSON.stringify(t.input).slice(0, MAX_TOOL_INPUT)}`)
     return [`### ${role}`, text && fenced(text), ...tools].filter(Boolean).join('\n')
   })
-  const joined = lines.join('\n\n')
-  return joined.length > MAX_TRANSCRIPT_CHARS ? joined.slice(-MAX_TRANSCRIPT_CHARS) : joined
+  // Fork: drop whole messages from the front. A cut inside a fence would leave the later chat
+  // text outside its fence, where it could pass for a `### user` turn.
+  let total = lines.reduce((n, l) => n + l.length + 2, 0)
+  while (lines.length > 1 && total > MAX_TRANSCRIPT_CHARS) total -= lines.shift()!.length + 2
+  return lines.join('\n\n')
 }
 
 const list = (items: string[]) => (items.length ? items.map(i => `- ${i}`).join('\n') : 'None.')
@@ -147,7 +150,7 @@ export function assembleBrief(ctx: Ctx, f: Facts, n: Numbers, haiku: string | un
 
 - **Previous chat:** ${ctx.sessionId}
 - **Transcript (grep it, never read it whole):** \`${ctx.transcript}\`
-- **How this was written:** ${haiku ? 'Haiku wrote the judgment sections from the conversation, abbreviated (long messages cut, tool output left out). They are a model\'s summary of the chat, not the user\'s own words. The facts at the end came from the tool calls, in code.' : 'Haiku did not return a usable brief, so this holds only the facts extracted in code. Grep the transcript for the rest.'}`
+- **How this was written:** ${haiku ? HANDOFF_MODEL.name + ' wrote the judgment sections from the conversation, abbreviated (long messages cut, tool output left out). They are a model\'s summary of the chat, not the user\'s own words. The facts at the end came from the tool calls, in code.' : HANDOFF_MODEL.name + ' did not return a usable brief, so this holds only the facts extracted in code. Grep the transcript for the rest.'}`
   // the user's own last words always: Haiku's section may paraphrase them (issue #1)
   return `${[header, haiku?.trim(), factsBlock(f, n)].filter(Boolean).join('\n\n')}\n`
 }

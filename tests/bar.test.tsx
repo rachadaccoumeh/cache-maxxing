@@ -35,7 +35,7 @@ function engine(on: On, opts: { store?: Record<string, unknown>; state?: unknown
   on('classic.PostModelSwitch', () => ({}))
   on('classic.PostCompact', () => ({}))
   const commands: string[] = []
-  on('command.register', (_, e) => { commands.push((e as { name: string }).name); return { value: { command: 'cmaxx' } } as never })
+  on('command.register', (_, e) => { commands.push((e as { name: string }).name); return { value: { command: 'cache' } } as never })
   on('ui.toast', (_, e) => { toasts.push(JSON.stringify(e)); return { value: undefined } })
   on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>{HIDDEN}</Text> })
   if (opts.state !== undefined) on('state.get', () => ({ value: { value: opts.state, version: 1 } }))
@@ -114,12 +114,12 @@ test('ticks to yellow, then red, with exactly one pop-up', async ($, on) => {
   await start($)
   await w.reply($, { read: 228_000, write: 0 })
   await w.clock.advance(57 * MIN)
-  await expectBar($, '🟡 3:00 min left · next message ≈ $0.05, later ≈ $1.82 (40× more) · 228K / 1M · ⏳ Reply soon or try /cmaxx-handoff')
+  await expectBar($, '🟡 3:00 min left · next message ≈ $0.05, later ≈ $1.82 (40× more) · 228K / 1M · ⏳ Reply soon or try /handoff')
   await w.clock.advance(15 * MIN)
-  await expectBar($, '🔴 cache expired · next message ≈ $1.82 (40× more) · 228K / 1M · 🔄 Try /cmaxx-handoff to save 170K tokens | $1.71')
+  await expectBar($, '🔴 cache expired · next message ≈ $1.82 (40× more) · 228K / 1M · 🔄 Try /handoff to save 170K tokens | $1.59')
   await w.clock.advance(5 * MIN)
   // the pop-up says exactly what the bar says
-  expect(w.toasts.filter(t => t.includes('🔴 cache expired · next message ≈ $1.82 (40× more) · 228K / 1M · 🔄 Try /cmaxx-handoff to save 170K tokens | $1.71')).length).toBe(1)
+  expect(w.toasts.filter(t => t.includes('🔴 cache expired · next message ≈ $1.82 (40× more) · 228K / 1M · 🔄 Try /handoff to save 170K tokens | $1.59')).length).toBe(1)
 })
 
 test('model switch re-prices at once; a resume "switch" does not', async ($, on) => {
@@ -130,7 +130,7 @@ test('model switch re-prices at once; a resume "switch" does not', async ($, on)
   await $.classic.PostModelSwitch({ ...sw, from_model: 'claude-sonnet-5-5', to_model: 'claude-opus-5-5', source: 'resume' } as never)
   expect((await bars($))[0]?.startsWith('🟢')).toBe(true)
   await $.classic.PostModelSwitch({ ...sw, from_model: 'claude-opus-5-5', to_model: 'claude-sonnet-5-5', source: 'command' } as never)
-  await expectBar($, '🔴 cache reset (model changed) · next message ≈ $0.91 (40× more) · 228K / 1M · 🔄 Try /cmaxx-handoff to save 170K tokens | $0.85')
+  await expectBar($, '🔴 cache reset (model changed) · next message ≈ $0.91 (40× more) · 228K / 1M · 🔄 Try /handoff to save 170K tokens | $0.73')
 })
 
 // Seen live 2026-11-16: /model switches then /compact left the next reply's countdown at 5:00.
@@ -160,7 +160,7 @@ test('older chat: filled in on resume, no reply needed', async ($, on) => {
   engine(on)
   await start($)
   await $.classic.SessionStart({ source: 'resume', session_id: 'chat-1', seconds_since_last_response: 7200, context_tokens: 290_000, prompt_cache_likely_expired: true, model: 'claude-opus-5-5' } as never)
-  await expectBar($, '🔴 cache expired · next message ≈ $2.32 (40× more) · 290K / 1M · 🔄 Try /cmaxx-handoff to save 232K tokens | $2.21')
+  await expectBar($, '🔴 cache expired · next message ≈ $2.32 (40× more) · 290K / 1M · 🔄 Try /handoff to save 232K tokens | $2.09')
 })
 
 test('/clear goes back to the waiting line', async ($, on) => {
@@ -185,7 +185,7 @@ test('a malformed record from an older version is ignored, never NaN', async ($,
   expect(out.some(t => t?.includes('NaN'))).toBe(false)
 })
 
-test('the close button hides the bar on every surface; /cmaxx brings it back', async ($, on) => {
+test('the close button hides the bar on every surface; /cache brings it back', async ($, on) => {
   const w = engine(on)
   await start($)
   await w.reply($, { read: 50_000, write: 0 })
@@ -193,7 +193,7 @@ test('the close button hides the bar on every surface; /cmaxx brings it back', a
   await ui.press({ key: 'close' })
   await ui.unmount()
   await expectBar($, HIDDEN)
-  await $.command.run({ command: 'cmaxx', args: '' } as never)
+  await $.command.run({ command: 'cache', args: '' } as never)
   expect((await bars($))[0]?.startsWith('🟢')).toBe(true)
 })
 
@@ -208,7 +208,7 @@ test('vscode: the ✕ sits beside the text, and pressing it hides the bar everyw
   await ui.press({ key: 'close' })
   await ui.unmount()
   await expectBar($, HIDDEN)
-  await $.command.run({ command: 'cmaxx', args: '' } as never)
+  await $.command.run({ command: 'cache', args: '' } as never)
   expect((await bars($)).every(t => t?.startsWith('🟢'))).toBe(true)
 })
 
@@ -235,7 +235,7 @@ test('a closed bar also stops the pop-up', async ($, on) => {
   expect(w.toasts.length).toBe(0)
 })
 
-// --- /cmaxx-handoff -------------------------------------------------------------
+// --- /handoff -------------------------------------------------------------
 // Everything outside the plugin is a stand-in: the chat, Haiku, the disk, /clear, the box.
 const BRIEF = '## Handoff Confidence\nHigh: all there.\n\n## Last Request from the User\nship it\nStatus: Answered\n\n## Next Steps\n1. Release.'
 
@@ -274,7 +274,7 @@ function handoffEngine(on: On, opts: { reply?: string | null; clearRefusals?: nu
 }
 
 async function handoff($: Dollar) {
-  return $.command.run({ command: 'cmaxx-handoff', args: '' } as never)
+  return $.command.run({ command: 'handoff', args: '' } as never)
 }
 
 test('handoff: Haiku writes it from the chat read locally; the main model never runs', async ($, on) => {
@@ -283,7 +283,7 @@ test('handoff: Haiku writes it from the chat read locally; the main model never 
   const r = await handoff($)
   expect(h.steps.n).toBe(0)
   expect(h.calls.model.length).toBe(1)
-  expect(h.calls.model[0]).toMatchObject({ model: 'haiku', effort: 'high', maxTokens: 64_000 }) // no cap yet: the API's ceiling
+  expect(h.calls.model[0]).toMatchObject({ model: 'sonnet', effort: 'high', maxTokens: 64_000 }) // no cap yet: the API's ceiling
   expect(h.calls.model[0]).toMatchObject({ timeoutMs: 180_000 }) // your call: 3 minutes, then facts only
   expect(String(h.calls.model[0]!.system)).toContain('## What Was Tried and Why It Failed') // the real skill file
   expect(String(h.calls.model[0]!.prompt)).toContain('# Extracted Facts')
@@ -347,7 +347,7 @@ test('handoff: Haiku fails → a facts-only file is still written', async ($, on
   const h = handoffEngine(on, { reply: null })
   await start($, 'terminal')
   const r = await handoff($)
-  expect(h.calls.writes[0]!.text).toContain('Haiku did not return a usable brief')
+  expect(h.calls.writes[0]!.text).toContain('Sonnet did not return a usable brief')
   expect(h.calls.writes[0]!.text).toContain('## Last Real User Message (verbatim)\nship it')
   expect(h.calls.notices[0]).toContain('facts only')
 })
@@ -358,7 +358,7 @@ test('handoff: a reply with no sections is not used as a brief', async ($, on) =
   const r = await handoff($)
   expect(h.calls.writes[0]!.text.includes('Sure!')).toBe(false)
   // the reason, with Haiku's counts: out at the cap would mean it ran out of room
-  expect(h.calls.notices[0]).toContain("(facts only: Haiku's reply had none of the sections, in 40000 / out 1500 of 64000 tokens)")
+  expect(h.calls.notices[0]).toContain("(facts only: Sonnet's reply had none of the sections, in 40000 / out 1500 of 64000 tokens)")
   expect(h.calls.notices[0]).toContain('This command never resent the chat to the main model: no cache read, no rebuild.') // no reply yet, so no bar record
 })
 
@@ -385,7 +385,7 @@ test('handoff: on an expired cache the old chat sees the approx saving, net of H
   await h.clock.advance(70 * MIN)
   const r = await handoff($)
   // rebuild 228K on Opus 1h = $1.824; Haiku 40K in + 1.5K out = $0.00475; tokens 228,000 - 41,500
-  expect(h.calls.notices[0]!.endsWith('You saved approx 174K tokens and $1.72.')).toBe(true)
+  expect(h.calls.notices[0]!.endsWith('You saved approx 174K tokens and $1.63.')).toBe(true)
 })
 
 test('handoff: a refused notice falls back to the command output, so the line is never lost', async ($, on) => {
@@ -459,7 +459,7 @@ test('send warning in the terminal: a red chat warns, the message still goes thr
 test('a broken store never costs the commands, the bar or the pop-up', async ($, on) => {
   const w = engine(on, { brokenStore: true })
   await start($)
-  expect(w.commands).toEqual(['cmaxx', 'cmaxx-handoff', 'cmaxx-update', 'cmaxx-stats'])
+  expect(w.commands).toEqual(['cache', 'handoff', 'cache-stats'])
   await w.reply($, { read: 290_000, write: 0 })
   await w.clock.advance(MIN)
   await expectBar($, '🟢 59 min left · next message ≈ $0.06 · 290K / 1M · ✅ Keep going')
@@ -473,7 +473,7 @@ test('weeks away: an 8-day-old record is pruned (7-day rule), and a resume still
   await start($)
   await expectBar($, WAITING) // pruned: kept, it would show its expired record
   await $.classic.SessionStart({ source: 'resume', session_id: 'chat-1', seconds_since_last_response: 30 * 24 * 3600, context_tokens: 290_000, prompt_cache_likely_expired: true, model: 'claude-opus-5-5' } as never)
-  await expectBar($, '🔴 cache expired · next message ≈ $2.32 (40× more) · 290K / 1M · 🔄 Try /cmaxx-handoff to save 232K tokens | $2.21')
+  await expectBar($, '🔴 cache expired · next message ≈ $2.32 (40× more) · 290K / 1M · 🔄 Try /handoff to save 232K tokens | $2.09')
 })
 
 test('clock set back: a record from the "future" still gives a valid bar', async ($, on) => {
@@ -511,9 +511,9 @@ test('handoff: a /clear more than 30 s later (your own) gets an empty box, not t
   expect(h.calls.fills).toEqual([])
 })
 
-// --- /cmaxx-stats (0.3.0) --------------------------------------------------------
+// --- /cache-stats (0.3.0) --------------------------------------------------------
 async function stats($: Dollar) {
-  return String((await $.command.run({ command: 'cmaxx-stats', args: '' } as never)).text)
+  return String((await $.command.run({ command: 'cache-stats', args: '' } as never)).text)
 }
 
 test('stats: replies, a cold rebuild after expiry, and all chats adding up', async ($, on) => {
@@ -541,19 +541,19 @@ test('stats: a handoff on an expired chat counts the notice\'s saving and Haiku\
   const t = await stats($)
   expect(t).toContain('| Handoffs | 1 | 1 |')
   // Haiku in the stand-in used 40,000 in / 1,500 out, and the fresh chat's start is 13K:
-  // 228K - 41.5K - 13K = 173.5K; $1.824 - $0.00475 - $0.104 = $1.715
+  // 228K - 41.5K - 13K = 173.5K; fork, Sonnet: $1.824 - $0.095 - $0.104 = $1.625
   expect(t).toContain('| Tokens saved | 174K | 174K |')
-  expect(t).toContain('| Saved by handoffs | $1.72 | $1.72 |')
-  expect(h.calls.notices[0]).toContain('You saved approx 174K tokens and $1.72.')
+  expect(t).toContain('| Saved by handoffs | $1.63 | $1.63 |')
+  expect(h.calls.notices[0]).toContain('You saved approx 174K tokens and $1.63.')
 })
 
-test('stats: a broken store still answers /cmaxx-stats, with zeros', async ($, on) => {
+test('stats: a broken store still answers /cache-stats, with zeros', async ($, on) => {
   engine(on, { brokenStore: true })
   await start($)
   expect(await stats($)).toContain('| Replies | 0 | 0 |')
 })
 
-// --- 0.4.0: stats fill-in, /cmaxx-update -----------------------------------------------
+// --- 0.4.0: stats fill-in, /cache-update -----------------------------------------------
 const TRANSCRIPT = [
   JSON.stringify({ type: 'assistant', timestamp: '2026-11-17T10:00:00Z', message: { id: 'a1', model: 'claude-opus-5-5', usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 228_000, output_tokens: 0 } } }),
   JSON.stringify({ type: 'assistant', timestamp: '2026-11-17T12:00:00Z', message: { id: 'a2', model: 'claude-opus-5-5', usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 228_000, output_tokens: 0 } } }),
@@ -612,43 +612,34 @@ function updateEngine(on: On, o: { latest?: string; prices?: unknown; processExi
     if (o.processExit === undefined) throw new Error('not available on this surface')
     return { value: { exitCode: o.processExit, stdout: o.processOut ?? '', stderr: '' } } as never
   })
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', (_, e) => {
+    const text = String((e as { text: string }).text)
+    if (text.startsWith('cache-maxxing: Prices')) priceLog = text.slice('cache-maxxing: '.length)
+    return { value: undefined }
+  })
   return { ...w, calls }
 }
-const runUpdate = async ($: Dollar) => String((await $.command.run({ command: 'cmaxx-update', args: '' } as never)).text)
+// Fork: prices refresh at session start (once a day); the report is its debug log line.
+let priceLog = ''
+const runUpdate = async (_$: Dollar) => priceLog
 
-test('update, same version: only this repo\'s files are read, and a new model is priced at once', async ($, on) => {
+test('prices refresh at session start, once a day, from upstream only; a new model is priced at once', async ($, on) => {
   const u = updateEngine(on)
   await start($)
   const t = await runUpdate($)
-  expect(t).toBe('cache-maxxing 0.4.0 is the latest version. Prices updated to 2026-12-02: new claude-opus-6.')
+  expect(t).toBe('Prices updated to 2026-12-02: new claude-opus-6.')
   expect(u.calls.argv).toEqual([])
   expect(u.calls.urls.every(x => x.startsWith('https://raw.githubusercontent.com/5m0k3/cache-maxxing/main/'))).toBe(true)
   await u.reply($, { read: 50_000, write: 0, model: 'claude-opus-6' })
   await expectBar($, '🟢 60 min left · next message ≈ $0.03 · 50K / 1M · ✅ Keep going')
-  expect(await runUpdate($)).toContain('Prices: up to date (2026-12-02).')
-})
-
-test('update, newer version: Claude Code\'s updater runs where it may; elsewhere the reply says how', async ($, on) => {
-  const u = updateEngine(on, { latest: '0.5.0', processExit: 0 })
-  await start($)
-  expect(await runUpdate($)).toContain('Updated cache-maxxing 0.4.0 → 0.5.0. Run /reload-plugins')
-  expect(u.calls.argv).toEqual([['claude', 'plugin', 'update', 'cache-maxxing@cache-maxxing']])
-})
-
-test('update, newer version but the updater is refused: manual steps, and prices still refreshed', async ($, on) => {
-  updateEngine(on, { latest: '0.5.0' })
-  await start($)
-  const t = await runUpdate($)
-  expect(t).toContain('Version 0.5.0 is out (you have 0.4.0). To update:')
-  expect(t).toContain('Enable auto-update')
-  expect(t).toContain('Prices updated to 2026-12-02')
+  await start($) // a second start the same day: no new download
+  expect(u.calls.urls).toEqual(['https://raw.githubusercontent.com/5m0k3/cache-maxxing/main/prices.json'])
 })
 
 test('update: offline or a bad table changes nothing', async ($, on) => {
   updateEngine(on, { offline: true })
   await start($)
-  expect(await runUpdate($)).toBe("Couldn't check for a new version: GitHub not reachable (offline?). Prices not checked: GitHub not reachable (offline?). Nothing changed.")
+  expect(await runUpdate($)).toBe('Prices not checked: GitHub not reachable (offline?).')
 })
 
 test('update: a refused price table leaves the prices as they were', async ($, on) => {
@@ -659,7 +650,7 @@ test('update: a refused price table leaves the prices as they were', async ($, o
   await expectBar($, '🟢 60 min left · next message ≈ $0.01 · 50K / 1M · ✅ Keep going')
 })
 
-test('prices saved by an earlier /cmaxx-update are used after a restart', async ($, on) => {
+test('prices saved by an earlier /cache-update are used after a restart', async ($, on) => {
   const w = engine(on, { store: { prices: { sourceDate: '2026-12-02', prices: { 'opus-6': [5, 0.5] } } } })
   await start($)
   await w.reply($, { read: 50_000, write: 0, model: 'claude-opus-6' })
@@ -707,15 +698,6 @@ test('after 90 days a chat is retired into the totals; resumed, it is not read o
   expect(t).toContain('| Chats | – | 1 |')
 })
 
-test('update: a failed price download never hides a finished update', async ($, on) => {
-  updateEngine(on, { latest: '0.5.0', processExit: 0, pricesFail: true })
-  await start($)
-  const t = await runUpdate($)
-  expect(t).toContain('Updated cache-maxxing 0.4.0 → 0.5.0. Run /reload-plugins')
-  expect(t).toContain('Prices not checked: GitHub not reachable (offline?).')
-  expect(t.includes('Nothing changed')).toBe(false)
-})
-
 test('a downloaded table dated like the built-in one never overrides it', async ($, on) => {
   const same = { sourceDate: PRICES_DATE, prices: { 'opus-5-5': [9, 0.9] } }
   const u = updateEngine(on, { store: { prices: same }, prices: same })
@@ -754,7 +736,7 @@ test('the 🔴 saving uses the size of your own fresh chats, learned from their 
   await w.reply($, { read: 42_000, write: 186_000 })
   await w.clock.advance(70 * MIN)
   // 228K - 45K Haiku estimate - (42K median of 40K, 44K and this chat's 42K + 4K brief) = 137K; two samples would fall back to 13K: 170K
-  expect((await bars($))[0]).toContain('🔄 Try /cmaxx-handoff to save 137K tokens')
+  expect((await bars($))[0]).toContain('🔄 Try /handoff to save 137K tokens')
 })
 
 test('stats: a second handoff of the same expired chat counts no second saving (issue #3)', async ($, on) => {
@@ -844,10 +826,3 @@ test('update: an older download never replaces newer prices saved earlier (issue
   await expectBar($, '🟢 60 min left · next message ≈ $0.04 · 50K / 1M · ✅ Keep going')
 })
 
-test('update: when Claude Code says it is already at the latest, the reply never claims "Updated" (F73)', async ($, on) => {
-  updateEngine(on, { latest: '0.5.0', processExit: 0, processOut: '✔ cache-maxxing is already at the latest version (0.4.0).' })
-  await start($)
-  const t = await runUpdate($)
-  expect(t.includes('Updated')).toBe(false)
-  expect(t).toContain('claude plugin marketplace update cache-maxxing')
-})

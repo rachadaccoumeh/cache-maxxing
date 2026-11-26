@@ -67,11 +67,11 @@ test('green, keep going', async () => {
 })
 
 test('green, long chat', async () => {
-  expect(decide(rec({ prefix: 320_000 }), 10 * MIN, DEFAULTS).text).toBe('🟢 50 min left · next message ≈ $0.06 · 320K / 1M · 🔄 Try /cmaxx-handoff or a new chat')
+  expect(decide(rec({ prefix: 320_000 }), 10 * MIN, DEFAULTS).text).toBe('🟢 50 min left · next message ≈ $0.06 · 320K / 1M · 🔄 Try /handoff or a new chat')
 })
 
 test('yellow on 1h cache; 15:00 left is yellow, 15:01 is green', async () => {
-  expect(decide(rec(), 57 * MIN, DEFAULTS).text).toBe('🟡 3:00 min left · next message ≈ $0.05, later ≈ $1.82 (40× more) · 228K / 1M · ⏳ Reply soon or try /cmaxx-handoff')
+  expect(decide(rec(), 57 * MIN, DEFAULTS).text).toBe('🟡 3:00 min left · next message ≈ $0.05, later ≈ $1.82 (40× more) · 228K / 1M · ⏳ Reply soon or try /handoff')
   expect(decide(rec(), 45 * MIN, DEFAULTS).light).toBe('yellow')
   expect(decide(rec(), 45 * MIN - 1_000, DEFAULTS).light).toBe('green')
 })
@@ -94,7 +94,7 @@ test('5m cache never shows yellow', async () => {
 
 test('red, expired big chat: popup once', async () => {
   const v = decide(rec(), 72 * MIN, DEFAULTS)
-  expect(v.text).toBe('🔴 cache expired · next message ≈ $1.82 (40× more) · 228K / 1M · 🔄 Try /cmaxx-handoff to save 170K tokens | $1.71')
+  expect(v.text).toBe('🔴 cache expired · next message ≈ $1.82 (40× more) · 228K / 1M · 🔄 Try /handoff to save 170K tokens | $1.59')
   expect(v.shouldPopup).toBe(true)
   expect(decide(rec({ warned: true }), 72 * MIN, DEFAULTS).shouldPopup).toBe(false)
 })
@@ -107,7 +107,7 @@ test('orange, expired small chat: no popup', async () => {
 
 test('model switch: reset at once on the new model, no popup', async () => {
   const v = decide(rec({ model: 'claude-sonnet-5-5', resetBy: 'model' }), 20 * MIN, DEFAULTS)
-  expect(v.text).toBe('🔴 cache reset (model changed) · next message ≈ $0.91 (40× more) · 228K / 1M · 🔄 Try /cmaxx-handoff to save 170K tokens | $0.85')
+  expect(v.text).toBe('🔴 cache reset (model changed) · next message ≈ $0.91 (40× more) · 228K / 1M · 🔄 Try /handoff to save 170K tokens | $0.73')
   expect(v.shouldPopup).toBe(false)
 })
 
@@ -118,7 +118,7 @@ test('compact: reset, usually small and orange', async () => {
 })
 
 test('times style hides dollars', async () => {
-  expect(decide(rec(), 72 * MIN, { ...DEFAULTS, costStyle: 'times' }).text).toBe('🔴 cache expired · next message: 40× more · 228K / 1M · 🔄 Try /cmaxx-handoff to save 170K tokens')
+  expect(decide(rec(), 72 * MIN, { ...DEFAULTS, costStyle: 'times' }).text).toBe('🔴 cache expired · next message: 40× more · 228K / 1M · 🔄 Try /handoff to save 170K tokens')
   expect(decide(rec({ prefix: 50_000 }), 10 * MIN, { ...DEFAULTS, costStyle: 'times' }).text).toBe('🟢 50 min left · next message: normal cost · 50K / 1M · ✅ Keep going')
 })
 
@@ -157,7 +157,7 @@ test('older chat filled in from session start: expired 2h ago, red', async () =>
   const now = 10 * 60 * MIN
   const r = fromSessionStart({ secondsSince: 7200, contextTokens: 290_000, model: 'claude-opus-5-5', window: 1_000_000 }, now, null, DEFAULTS)
   expect(r.isEstimate).toBe(true)
-  expect(decide(r, now, DEFAULTS).text).toBe('🔴 cache expired · next message ≈ $2.32 (40× more) · 290K / 1M · 🔄 Try /cmaxx-handoff to save 232K tokens | $2.21')
+  expect(decide(r, now, DEFAULTS).text).toBe('🔴 cache expired · next message ≈ $2.32 (40× more) · 290K / 1M · 🔄 Try /handoff to save 232K tokens | $2.09')
 })
 
 test('older chat still warm (20 min ago): green with the right time', async () => {
@@ -196,9 +196,9 @@ test('the 🔴 tip and the handoff notice use one calculation: same figures when
   const bar = decide(r, 72 * MIN, DEFAULTS).text
   const haiku = { ...HAIKU_ESTIMATE, usd: haikuUsd(HAIKU_ESTIMATE.in, HAIKU_ESTIMATE.out) }
   const notice = savingsLine({ path: 'x.md', haiku, main: { model: r.model, tokens: r.prefix, cold: costs(r)!.cold, isCold: true } })
-  expect(bar.endsWith('to save 170K tokens | $1.71')).toBe(true)
-  expect(notice.endsWith('You saved approx 170K tokens and $1.71.')).toBe(true)
-  expect(Math.round(haiku.usd * 1e6)).toBe(6_500) // $0.0065: 40K in at $0.10/M + 5K out at $0.50/M
+  expect(bar.endsWith('to save 170K tokens | $1.59')).toBe(true)
+  expect(notice.endsWith('You saved approx 170K tokens and $1.59.')).toBe(true)
+  expect(Math.round(haiku.usd * 1e6)).toBe(130_000) // fork, Sonnet: $0.13 = 40K in at $2/M + 5K out at $10/M
 })
 
 test('stats: counts add up, junk counts as empty, the table puts this chat and all chats side by side', () => {
@@ -229,7 +229,7 @@ test('stats: counts add up, junk counts as empty, the table puts this chat and a
   expect(t).toContain('| Cache hit rate | – | – |')
 })
 
-// --- 0.4.0: transcript fill-in, /cmaxx-update ----------------------------------------
+// --- 0.4.0: transcript fill-in, /cache-update ----------------------------------------
 const row = (o: object) => JSON.stringify(o)
 const asst = (id: string, at: string, read: number, write: number, extra: object = {}) =>
   row({ type: 'assistant', timestamp: at, message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 2, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: 10 } }, ...extra })
@@ -321,9 +321,9 @@ test('a downloaded price table is refused unless it is sane and not older than t
   ]) expect('error' in validatePrices(bad, PRICES_DATE)).toBe(true)
 })
 
-test('an unknown model nudges to /cmaxx-update until a downloaded price covers it', () => {
+test('an unknown model is flagged until a downloaded price covers it', () => {
   const r = rec({ model: 'claude-opus-6', prefix: 50_000 })
-  expect(decide(r, 10 * MIN, DEFAULTS).text).toBe('🟢 50 min left · next message: normal cost · 50K / 1M · ✅ Keep going · new model? try /cmaxx-update')
+  expect(decide(r, 10 * MIN, DEFAULTS).text).toBe('🟢 50 min left · next message: normal cost · 50K / 1M · ✅ Keep going · new model? price not known yet')
   setPriceOverride({ 'opus-6': [5, 0.5] })
   try {
     expect(decide(r, 10 * MIN, DEFAULTS).text).toBe('🟢 50 min left · next message ≈ $0.03 · 50K / 1M · ✅ Keep going')
@@ -355,7 +355,7 @@ test('a tip with nothing to save falls back to the plain suggestion', () => {
   // a 30K chat under a $0.01 limit: 30K - 45K Haiku - 13K start is below zero
   const v = decide(rec({ prefix: 30_000, read: 30_000 }), 72 * MIN, { ...DEFAULTS, rebuildLimitUsd: 0.01 })
   expect(v.light).toBe('red')
-  expect(v.text.endsWith('🔄 Try /cmaxx-handoff or a new chat')).toBe(true)
+  expect(v.text.endsWith('🔄 Try /handoff or a new chat')).toBe(true)
 })
 
 test('All chats: every chat summed with the retired ones; a chat with no reply or already retired is not counted again', () => {

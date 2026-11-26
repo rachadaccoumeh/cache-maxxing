@@ -1,5 +1,5 @@
 <!--
-handoff-skill.md: what /cmaxx-handoff tells Haiku, and what the new chat reads first.
+handoff-skill.md: what /handoff tells Haiku, and what the new chat reads first.
 Read by hooks/register.tsx at run time. Three parts, each under a "# " heading the code
 looks up by name; keep those three headings. Everything else is free to edit.
 -->
